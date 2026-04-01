@@ -1,0 +1,10 @@
+# macOS noise
+.DS_Store
+
+# Local agent overrides
+.agents/.env
+
+# Local RPM packaging handoff bundle and build outputs
+rpm/dist/
+.rpmbuild/
+.cache/
