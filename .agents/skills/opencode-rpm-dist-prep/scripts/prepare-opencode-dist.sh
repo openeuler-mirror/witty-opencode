@@ -55,6 +55,7 @@ fi
 
 [[ -f "$PACKAGING_SPEC_FILE" ]] || die "Missing packaging spec: $PACKAGING_SPEC_FILE"
 [[ -d "$RPM_BASE_DIR" ]] || die "Missing base payload directory: $RPM_BASE_DIR"
+[[ -f "$REPO_ROOT/LICENSE" ]] || die "Missing repository root license file: $REPO_ROOT/LICENSE"
 
 release_json="$(mktemp)"
 tarball_tmp="$(mktemp)"
@@ -299,9 +300,10 @@ if [[ "$should_refresh_models" == true ]]; then
 fi
 
 if [[ "$should_prepare_source2" == true ]]; then
-    log "Preparing Source2 from rpm/base/"
+    log "Preparing Source2 from rpm/base/ plus the repository root LICENSE"
     staging_dir="$(mktemp -d)"
     cp -r "$RPM_BASE_DIR/." "$staging_dir/"
+    cp "$REPO_ROOT/LICENSE" "$staging_dir/LICENSE"
     rpm_docs_file="$RPM_ROOT/docs/witty-opencode-base.md"
     if [[ -f "$rpm_docs_file" ]]; then
         mkdir -p "$staging_dir/docs"
