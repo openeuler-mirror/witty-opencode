@@ -16,7 +16,7 @@ Use this skill for source sync and release-bundle preparation. It updates `rpm/p
 
 ## Files in this skill
 
-- `scripts/prepare-opencode-dist.sh` — check the latest GitHub release, optionally preview the sync with `--dry-run`, download Source0 and Source1 into `rpm/dist`, generate Source2 from `rpm/base`, update `rpm/packaging/witty-opencode.spec`, copy the finished spec into `rpm/dist`, and remove stale dist tarballs without trying to stage gitignored handoff artifacts.
+- `scripts/prepare-opencode-dist.sh` — check the latest GitHub release, optionally preview the sync with `--dry-run`, download Source0 and Source1 into `rpm/dist`, generate Source2 from `rpm/base/` plus the repository-root `LICENSE`, update `rpm/packaging/witty-opencode.spec`, copy the finished spec into `rpm/dist`, and remove stale dist tarballs without trying to stage gitignored handoff artifacts.
 - `scripts/common.sh` — shared helpers for repository paths plus developer-machine overrides such as upstream source or models snapshot URLs.
 
 ## Expected repo layout
@@ -41,7 +41,7 @@ This skill does not need any VM selection or `OPENCODE_BUILDER_VM` setting.
 
 ## Notes for future refreshes
 
-- Source2 is created from the current `rpm/base/` directory so the base subpackage always ships the same repository snapshot that the spec expects.
+- Source2 is created from the current `rpm/base/` directory plus the repository-root `LICENSE`, so the base subpackage always ships the same repository snapshot and license text that the spec expects.
 - Upstream `packages/opencode/script/build.ts` fetches `https://models.dev/api.json` unless `MODELS_DEV_API_JSON` is provided. Keeping `opencode-models-api.json` in `rpm/dist/` makes the build inputs explicit and easy to hand off.
 - The script is intentionally conservative: it will not automatically downgrade the packaging spec if the local `Version` is newer than GitHub's latest release.
 - The validated CI-safe mirror settings remain `ELECTRON_MIRROR=https://mirrors.huaweicloud.com/electron/` and `ELECTRON_BUILDER_BINARIES_MIRROR=https://mirrors.huaweicloud.com/electron-builder-binaries/`.

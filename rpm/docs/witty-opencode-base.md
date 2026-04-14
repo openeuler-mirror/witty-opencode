@@ -134,15 +134,22 @@ Skill 子包只需要把内容安装到：
   - 使用 AI Agent，以自然语言请求其触发 `opencode-rpm-dist-prep` skill，完成 `rpm/packaging/witty-opencode.spec` 更新与 `rpm/dist/` 发布目录准备
 - 无论采用哪种方式，最终都会把 `witty-opencode-base-${VERSION}.tar.gz`、`witty-opencode-${VERSION}.tar.gz`、`opencode-models-api.json` 和拷贝后的 `witty-opencode.spec` 一起放入 `rpm/dist/`
 
-如果需要手工生成，`Source2` 等价于对仓库中的 `rpm/base/` 目录打包，例如：
+如果需要手工生成，`Source2` 等价于把仓库中的 `rpm/base/` 目录与项目根目录的 `LICENSE` 组装到同一个临时目录后再打包，例如：
 
 ```bash
-tar -czf rpm/dist/witty-opencode-base-${VERSION}.tar.gz -C rpm/base .
+tmpdir="$(mktemp -d)"
+cp -a rpm/base/. "$tmpdir/"
+cp LICENSE "$tmpdir/LICENSE"
+mkdir -p "$tmpdir/docs"
+cp rpm/docs/witty-opencode-base.md "$tmpdir/docs/"
+tar -czf rpm/dist/witty-opencode-base-${VERSION}.tar.gz -C "$tmpdir" .
+rm -rf "$tmpdir"
 cp rpm/packaging/witty-opencode.spec rpm/dist/witty-opencode.spec
 ```
 
 然后由 `witty-opencode.spec` 在 `%prep` 阶段解包到独立目录，并在 `%install` 阶段安装：
 
+- 基座包 license（来自项目根目录 `LICENSE`）
 - libexec 脚本
 - logo 插件
 - 受管目录
