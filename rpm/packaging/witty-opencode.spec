@@ -17,8 +17,8 @@
 %global witty_managed_libexec %{_libexecdir}/witty-opencode
 
 Name:           witty-opencode
-Version:        1.3.17
-Release:        2%{?dist}
+Version:        1.14.40
+Release:        1%{?dist}
 Summary:        AI coding agent built for the terminal
 
 License:        MIT AND MulanPSL-2.0
@@ -303,6 +303,15 @@ fi
 %{witty_managed_logo}
 
 %changelog
+* Thu May 07 2026 SIG-Intelligence <intelligence@openeuler.org> - 1.14.40-1
+- Sync to upstream v1.14.40 release
+
+* Mon Apr 20 2026 SIG-Intelligence <intelligence@openeuler.org> - 1.14.18-1
+- Sync to upstream v1.14.18 release
+
+* Wed Apr 08 2026 SIG-Intelligence <intelligence@openeuler.org> - 1.4.0-1
+- Sync to upstream v1.4.0 release
+
 * Wed Apr 08 2026 SIG-Intelligence <intelligence@openeuler.org> - 1.3.17-2
 - Split per-subpackage license metadata and ship the base package license text
 
