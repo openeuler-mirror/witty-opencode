@@ -17,8 +17,8 @@
 %global witty_managed_libexec %{_libexecdir}/witty-opencode
 
 Name:           witty-opencode
-Version:        1.3.17
-Release:        2%{?dist}
+Version:        1.14.40
+Release:        1%{?dist}
 Summary:        AI coding agent built for the terminal
 
 License:        MIT AND MulanPSL-2.0
@@ -177,8 +177,8 @@ pushd packages/opencode
 bun run script/build.ts --single --skip-install
 popd
 
-cp -f "packages/opencode/dist/%{opencode_build_target}/bin/opencode" "packages/desktop-electron/resources/opencode-cli"
-pushd packages/desktop-electron
+cp -f "packages/opencode/dist/%{opencode_build_target}/bin/opencode" "packages/desktop/resources/opencode-cli"
+pushd packages/desktop
 bun run build
 bun x electron-builder --linux --config electron-builder.config.ts --publish never
 popd
@@ -211,8 +211,8 @@ install -d "%{buildroot}%{witty_managed_skills}"
 install -d "%{buildroot}%{witty_managed_plugins}/logo"
 install -Dm644 "%{base_source_dir}/plugins/logo/witty-logo.tsx" "%{buildroot}%{witty_managed_logo}"
 
-desktop_extract_dir="%{_builddir}/desktop-electron-extract"
-desktop_rpm="packages/desktop-electron/dist/opencode-electron-linux-%{electron_rpm_arch}.rpm"
+desktop_extract_dir="%{_builddir}/desktop-extract"
+desktop_rpm="packages/desktop/dist/opencode-desktop-linux-%{electron_rpm_arch}.rpm"
 
 rm -rf "$desktop_extract_dir"
 mkdir -p "$desktop_extract_dir"
@@ -224,16 +224,59 @@ cp -a "$desktop_extract_dir/opt" "%{buildroot}/"
 install -d "%{buildroot}%{_datadir}"
 cp -a "$desktop_extract_dir/usr/share/." "%{buildroot}%{_datadir}/"
 
-ln -s "../../opt/OpenCode/@opencode-aidesktop-electron" "%{buildroot}%{_bindir}/@opencode-aidesktop-electron"
-ln -s "../../opt/OpenCode/@opencode-aidesktop-electron" "%{buildroot}%{_bindir}/opencode-desktop"
+desktop_app_root="%{buildroot}/opt/OpenCode"
+desktop_launcher_name=""
+for candidate in opencode OpenCode @opencode-aidesktop-electron; do
+  if [ -x "$desktop_app_root/$candidate" ]; then
+    desktop_launcher_name="$candidate"
+    break
+  fi
+done
+
+if [ -z "$desktop_launcher_name" ]; then
+  desktop_launcher_path="$(find "$desktop_app_root" -maxdepth 1 -type f -executable ! -name 'chrome-sandbox' ! -name 'chrome_crashpad_handler' ! -name '*.so*' | head -n 1)"
+  if [ -n "$desktop_launcher_path" ]; then
+    desktop_launcher_name="$(basename "$desktop_launcher_path")"
+  fi
+fi
+
+if [ -z "$desktop_launcher_name" ]; then
+  echo "Could not determine desktop launcher under $desktop_app_root" >&2
+  find "$desktop_app_root" -maxdepth 1 -type f >&2 || :
+  exit 1
+fi
+
+ln -s "../../opt/OpenCode/${desktop_launcher_name}" "%{buildroot}%{_bindir}/@opencode-aidesktop-electron"
+ln -s "../../opt/OpenCode/${desktop_launcher_name}" "%{buildroot}%{_bindir}/opencode-desktop"
 
 %check
 cd %{name}-%{version}
 
 ./packages/opencode/dist/%{opencode_build_target}/bin/opencode --version | grep -F "%{version}"
-test -x ./packages/desktop-electron/dist/linux-unpacked/@opencode-aidesktop-electron || \
-test -x ./packages/desktop-electron/dist/linux-%{electron_builder_arch}-unpacked/@opencode-aidesktop-electron
-test -f ./packages/desktop-electron/dist/opencode-electron-linux-%{electron_rpm_arch}.rpm
+desktop_unpack_dir=""
+for candidate in ./packages/desktop/dist/linux-unpacked ./packages/desktop/dist/linux-%{electron_builder_arch}-unpacked; do
+  if [ -d "$candidate" ]; then
+    desktop_unpack_dir="$candidate"
+    break
+  fi
+done
+test -n "$desktop_unpack_dir"
+
+desktop_launcher_path=""
+for candidate in opencode OpenCode @opencode-aidesktop-electron; do
+  if [ -x "$desktop_unpack_dir/$candidate" ]; then
+    desktop_launcher_path="$desktop_unpack_dir/$candidate"
+    break
+  fi
+done
+
+if [ -z "$desktop_launcher_path" ]; then
+  desktop_launcher_path="$(find "$desktop_unpack_dir" -maxdepth 1 -type f -executable ! -name 'chrome-sandbox' ! -name 'chrome_crashpad_handler' ! -name '*.so*' | head -n 1)"
+fi
+
+test -n "$desktop_launcher_path"
+test -x "$desktop_launcher_path"
+test -f ./packages/desktop/dist/opencode-desktop-linux-%{electron_rpm_arch}.rpm
 
 test -x "%{buildroot}%{witty_managed_libexec}/rebuild-managed-config.mjs"
 test -x "%{buildroot}%{witty_managed_libexec}/run-managed-config-hook.sh"
@@ -282,8 +325,8 @@ fi
 %{_bindir}/@opencode-aidesktop-electron
 %{_bindir}/opencode-desktop
 /opt/OpenCode
-%{_datadir}/applications/@opencode-aidesktop-electron.desktop
-%{_datadir}/icons/hicolor/*/apps/@opencode-aidesktop-electron.png
+%{_datadir}/applications/*.desktop
+%{_datadir}/icons/hicolor/*/apps/*
 
 %files base
 %license %{_licensedir}/%{name}-base/LICENSE
@@ -303,6 +346,15 @@ fi
 %{witty_managed_logo}
 
 %changelog
+* Thu May 07 2026 SIG-Intelligence <intelligence@openeuler.org> - 1.14.40-1
+- Sync to upstream v1.14.40 release
+
+* Mon Apr 20 2026 SIG-Intelligence <intelligence@openeuler.org> - 1.14.18-1
+- Sync to upstream v1.14.18 release
+
+* Wed Apr 08 2026 SIG-Intelligence <intelligence@openeuler.org> - 1.4.0-1
+- Sync to upstream v1.4.0 release
+
 * Wed Apr 08 2026 SIG-Intelligence <intelligence@openeuler.org> - 1.3.17-2
 - Split per-subpackage license metadata and ship the base package license text
 
