@@ -1,6 +1,6 @@
 # witty-opencode-base 使用说明
 
-`witty-opencode-base` 是 `witty-opencode` 的配套子包，负责把 **RPM 安装的 Agent / Skill 套组** 和 OpenCode 的托管配置衔接起来。
+`witty-opencode-base` 是与 `opencode` CLI 配套的基础包，负责把 **RPM 安装的 Agent / Skill 套组** 和 OpenCode 的托管配置衔接起来。
 
 它不提供 OpenCode CLI 本体，而是提供：
 
@@ -13,11 +13,11 @@
 
 典型安装方式：
 
-- `witty-opencode`：CLI 本体
+- `opencode`：CLI 本体
 - `witty-opencode-base`：托管配置基座
 - `witty-opencode-agent-*` / `witty-opencode-skill-*`：各个功能套组子包
 
-`witty-opencode-base` 应与 `witty-opencode` 一起安装；后续 Agent / Skill 子包可以按需增删。
+`witty-opencode-base` 应与 `opencode` 一起安装；后续 Agent / Skill 子包可以按需增删。
 
 ## 基座包安装后的目录
 
@@ -126,15 +126,17 @@ Skill 子包只需要把内容安装到：
 
 ## 打包说明（基座包维护者）
 
-`witty-opencode-base` 的源码应作为 `Source2` 提供。当前仓库推荐通过发布准备流程生成它：
+`witty-opencode-base` 的源码当前由 `rpm/packaging/witty-opencode.spec` 的 `Source0` 提供。当前仓库推荐通过发布准备流程生成它：
 
-- 编辑与更新 `rpm/packaging/witty-opencode.spec`
+- 编辑与更新 `rpm/packaging/opencode.spec` 和 `rpm/packaging/witty-opencode.spec`
 - 通过以下任一方式运行发布准备流程：
   - 直接运行脚本 `/.agents/skills/opencode-rpm-dist-prep/scripts/prepare-opencode-dist.sh`
-  - 使用 AI Agent，以自然语言请求其触发 `opencode-rpm-dist-prep` skill，完成 `rpm/packaging/witty-opencode.spec` 更新与 `rpm/dist/` 发布目录准备
-- 无论采用哪种方式，最终都会把 `witty-opencode-base-${VERSION}.tar.gz`、`witty-opencode-${VERSION}.tar.gz`、`opencode-models-api.json` 和拷贝后的 `witty-opencode.spec` 一起放入 `rpm/dist/`
+  - 使用 AI Agent，以自然语言请求其触发 `opencode-rpm-dist-prep` skill，完成两个 spec 更新与 `rpm/dist/opencode/`、`rpm/dist/witty-opencode/` 发布目录准备
+- 无论采用哪种方式，最终都会把 `v${VERSION}.tar.gz`、`opencode-models-api.json` 与拷贝后的 `opencode.spec` 放入 `rpm/dist/opencode/`，并把 `witty-opencode-base-${VERSION}.tar.gz` 与拷贝后的 `witty-opencode.spec` 放入 `rpm/dist/witty-opencode/`
 
-如果需要手工生成，`Source2` 等价于把仓库中的 `rpm/base/` 目录与项目根目录的 `LICENSE` 组装到同一个临时目录后再打包，例如：
+其中 `rpm/packaging/opencode.spec` 的 `Source0` 固定指向 `https://github.com/anomalyco/%{name}/archive/refs/tags/v%{version}.tar.gz`，因此 handoff 目录中的上游源码包文件名也应保持为 `v${VERSION}.tar.gz`。
+
+如果需要手工生成 `witty-opencode-base` 的源码包，等价于把仓库中的 `rpm/base/` 目录与项目根目录的 `LICENSE` 组装到同一个临时目录后再打包，例如：
 
 ```bash
 tmpdir="$(mktemp -d)"
@@ -142,12 +144,12 @@ cp -a rpm/base/. "$tmpdir/"
 cp LICENSE "$tmpdir/LICENSE"
 mkdir -p "$tmpdir/docs"
 cp rpm/docs/witty-opencode-base.md "$tmpdir/docs/"
-tar -czf rpm/dist/witty-opencode-base-${VERSION}.tar.gz -C "$tmpdir" .
+tar -czf rpm/dist/witty-opencode/witty-opencode-base-${VERSION}.tar.gz -C "$tmpdir" .
 rm -rf "$tmpdir"
-cp rpm/packaging/witty-opencode.spec rpm/dist/witty-opencode.spec
+cp rpm/packaging/witty-opencode.spec rpm/dist/witty-opencode/witty-opencode.spec
 ```
 
-然后由 `witty-opencode.spec` 在 `%prep` 阶段解包到独立目录，并在 `%install` 阶段安装：
+然后由 `rpm/packaging/witty-opencode.spec` 在 `%prep` 阶段解包到独立目录，并在 `%install` 阶段安装：
 
 - 基座包 license（来自项目根目录 `LICENSE`）
 - libexec 脚本
