@@ -53,7 +53,8 @@ if [[ "$check_only" == true && "$dry_run" == true ]]; then
     die "--check and --dry-run cannot be used together. Use --check for a version-only comparison, or --dry-run to preview the full sync."
 fi
 
-[[ -f "$PACKAGING_SPEC_FILE" ]] || die "Missing packaging spec: $PACKAGING_SPEC_FILE"
+[[ -f "$OPENCODE_PACKAGING_SPEC_FILE" ]] || die "Missing packaging spec: $OPENCODE_PACKAGING_SPEC_FILE"
+[[ -f "$WITTY_PACKAGING_SPEC_FILE" ]] || die "Missing packaging spec: $WITTY_PACKAGING_SPEC_FILE"
 [[ -d "$RPM_BASE_DIR" ]] || die "Missing base payload directory: $RPM_BASE_DIR"
 [[ -f "$REPO_ROOT/LICENSE" ]] || die "Missing repository root license file: $REPO_ROOT/LICENSE"
 
@@ -85,41 +86,44 @@ version = tag[1:] if tag.startswith('v') else tag
 
 print(tag)
 print(version)
-print(data['tarball_url'])
 print(data.get('html_url', ''))
 PY
 )
 
 tag="${release_metadata[0]}"
 latest_version="${release_metadata[1]}"
-tarball_url="${release_metadata[2]}"
-release_url="${release_metadata[3]}"
+release_url="${release_metadata[2]}"
 
-spec_version="$(
-    python3 - "$PACKAGING_SPEC_FILE" <<'PY'
+spec_metadata=()
+while IFS= read -r line; do
+    spec_metadata+=("$line")
+done < <(
+    python3 - "$OPENCODE_PACKAGING_SPEC_FILE" "$WITTY_PACKAGING_SPEC_FILE" <<'PY'
 import re
 import sys
 from pathlib import Path
 
-text = Path(sys.argv[1]).read_text(encoding='utf-8')
-match = re.search(r'^Version:\s*(\S+)$', text, re.MULTILINE)
-if not match:
-    raise SystemExit('Missing Version field in spec file')
-print(match.group(1))
+for path in sys.argv[1:]:
+    text = Path(path).read_text(encoding='utf-8')
+    version_match = re.search(r'^Version:\s*(\S+)$', text, re.MULTILINE)
+    release_match = re.search(r'^Release:\s*(\d+)', text, re.MULTILINE)
+    if not version_match:
+        raise SystemExit(f'Missing Version field in {path}')
+    print(version_match.group(1))
+    print(release_match.group(1) if release_match else '1')
 PY
-)"
+)
 
-release_number="$(
-    python3 - "$PACKAGING_SPEC_FILE" <<'PY'
-import re
-import sys
-from pathlib import Path
+opencode_spec_version="${spec_metadata[0]}"
+opencode_release_number="${spec_metadata[1]}"
+witty_spec_version="${spec_metadata[2]}"
+witty_release_number="${spec_metadata[3]}"
 
-text = Path(sys.argv[1]).read_text(encoding='utf-8')
-match = re.search(r'^Release:\s*(\d+)', text, re.MULTILINE)
-print(match.group(1) if match else '1')
-PY
-)"
+[[ "$opencode_spec_version" == "$witty_spec_version" ]] || die "Packaging spec versions differ: opencode.spec=${opencode_spec_version}, witty-opencode.spec=${witty_spec_version}. Reconcile them before preparing rpm/dist."
+[[ "$opencode_release_number" == "$witty_release_number" ]] || die "Packaging spec release numbers differ: opencode.spec=${opencode_release_number}, witty-opencode.spec=${witty_release_number}. Reconcile them before preparing rpm/dist."
+
+spec_version="$opencode_spec_version"
+release_number="$opencode_release_number"
 
 version_relation="$(
     python3 - "$spec_version" "$latest_version" <<'PY'
@@ -151,7 +155,7 @@ older)
     [[ -n "$release_url" ]] && log "Release page: ${release_url}"
     ;;
 equal)
-    log "Packaging spec already tracks the latest upstream release ${tag}."
+    log "Packaging specs already track the latest upstream release ${tag}."
     ;;
 newer)
     die "Packaging spec version ${spec_version} is newer than upstream latest ${latest_version}; refusing to downgrade automatically."
@@ -166,33 +170,63 @@ if [[ "$check_only" == true ]]; then
 fi
 
 target_version="$spec_version"
+target_release_number="$release_number"
 if [[ "$version_relation" == "older" ]]; then
     target_version="$latest_version"
+    target_release_number=1
 fi
 
-target_tarball="$RPM_DIST_DIR/${UPSTREAM_SOURCE_PREFIX}-${target_version}.tar.gz"
-target_base_tarball="$RPM_DIST_DIR/${BASE_SOURCE_NAME}-${target_version}.tar.gz"
-target_models_file="$DIST_MODELS_FILE"
-target_dist_spec="$DIST_SPEC_FILE"
+opencode_source_archive="$(opencode_source_archive_name "$target_version")"
+source_tarball_url="https://github.com/${OPENCODE_SOURCE_REPO}/archive/refs/tags/${opencode_source_archive}"
+target_opencode_tarball="$RPM_OPENCODE_DIST_DIR/${opencode_source_archive}"
+target_base_tarball="$RPM_WITTY_DIST_DIR/${BASE_SOURCE_NAME}-${target_version}.tar.gz"
+target_models_file="$OPENCODE_DIST_MODELS_FILE"
 
-stale_dist_tarballs=()
-if [[ -d "$RPM_DIST_DIR" ]]; then
+opencode_stale_tarballs=()
+if [[ -d "$RPM_OPENCODE_DIST_DIR" ]]; then
     while IFS= read -r stale_tarball; do
         [[ -n "$stale_tarball" ]] || continue
-        stale_dist_tarballs+=("$stale_tarball")
+        opencode_stale_tarballs+=("$stale_tarball")
     done < <(
-        find "$RPM_DIST_DIR" -maxdepth 1 -type f \( -name "${UPSTREAM_SOURCE_PREFIX}-*.tar.gz" -o -name "${BASE_SOURCE_NAME}-*.tar.gz" \) \
-            ! -name "$(basename "$target_tarball")" \
-            ! -name "$(basename "$target_base_tarball")" \
-            -print | sort
+        find "$RPM_OPENCODE_DIST_DIR" -maxdepth 1 -type f \( -name 'v*.tar.gz' -o -name 'opencode-*.tar.gz' \) \
+            ! -name "$(basename "$target_opencode_tarball")" -print | sort
     )
 fi
 
-should_update_packaging_spec=false
-[[ "$version_relation" == "older" ]] && should_update_packaging_spec=true
+witty_stale_tarballs=()
+if [[ -d "$RPM_WITTY_DIST_DIR" ]]; then
+    while IFS= read -r stale_tarball; do
+        [[ -n "$stale_tarball" ]] || continue
+        witty_stale_tarballs+=("$stale_tarball")
+    done < <(
+        find "$RPM_WITTY_DIST_DIR" -maxdepth 1 -type f -name "${BASE_SOURCE_NAME}-*.tar.gz" \
+            ! -name "$(basename "$target_base_tarball")" -print | sort
+    )
+fi
+
+obsolete_flat_dist_files=()
+if [[ -d "$RPM_DIST_DIR" ]]; then
+    while IFS= read -r stale_file; do
+        [[ -n "$stale_file" ]] || continue
+        obsolete_flat_dist_files+=("$stale_file")
+    done < <(
+        find "$RPM_DIST_DIR" -maxdepth 1 -type f \( \
+            -name 'opencode.spec' -o \
+            -name 'witty-opencode.spec' -o \
+            -name 'opencode-models-api.json' -o \
+            -name 'v*.tar.gz' -o \
+            -name 'opencode-*.tar.gz' -o \
+            -name 'witty-opencode-*.tar.gz' -o \
+            -name 'witty-opencode-base-*.tar.gz' \
+            \) -print | sort
+    )
+fi
+
+should_update_packaging_specs=false
+[[ "$version_relation" == "older" ]] && should_update_packaging_specs=true
 
 should_download_source0=false
-if [[ "$force_refresh" == true || "$version_relation" == "older" || ! -f "$target_tarball" ]]; then
+if [[ "$force_refresh" == true || "$version_relation" == "older" || ! -f "$target_opencode_tarball" ]]; then
     should_download_source0=true
 fi
 
@@ -206,19 +240,28 @@ if [[ "$force_refresh" == true || "$version_relation" == "older" || ! -f "$targe
     should_prepare_source2=true
 fi
 
-should_copy_dist_spec=false
-if [[ "$should_update_packaging_spec" == true || "$force_refresh" == true || ! -f "$target_dist_spec" ]]; then
-    should_copy_dist_spec=true
-elif ! cmp -s "$PACKAGING_SPEC_FILE" "$target_dist_spec"; then
-    should_copy_dist_spec=true
+should_copy_opencode_dist_spec=false
+if [[ "$should_update_packaging_specs" == true || "$force_refresh" == true || ! -f "$OPENCODE_DIST_SPEC_FILE" ]]; then
+    should_copy_opencode_dist_spec=true
+elif ! cmp -s "$OPENCODE_PACKAGING_SPEC_FILE" "$OPENCODE_DIST_SPEC_FILE"; then
+    should_copy_opencode_dist_spec=true
+fi
+
+should_copy_witty_dist_spec=false
+if [[ "$should_update_packaging_specs" == true || "$force_refresh" == true || ! -f "$WITTY_DIST_SPEC_FILE" ]]; then
+    should_copy_witty_dist_spec=true
+elif ! cmp -s "$WITTY_PACKAGING_SPEC_FILE" "$WITTY_DIST_SPEC_FILE"; then
+    should_copy_witty_dist_spec=true
 fi
 
 should_remove_stale=false
-[[ "${#stale_dist_tarballs[@]}" -gt 0 ]] && should_remove_stale=true
+[[ "${#opencode_stale_tarballs[@]}" -gt 0 ]] && should_remove_stale=true
+[[ "${#witty_stale_tarballs[@]}" -gt 0 ]] && should_remove_stale=true
+[[ "${#obsolete_flat_dist_files[@]}" -gt 0 ]] && should_remove_stale=true
 
-if [[ "$should_update_packaging_spec" == false && "$should_download_source0" == false && "$should_refresh_models" == false && "$should_prepare_source2" == false && "$should_copy_dist_spec" == false && "$should_remove_stale" == false ]]; then
+if [[ "$should_update_packaging_specs" == false && "$should_download_source0" == false && "$should_refresh_models" == false && "$should_prepare_source2" == false && "$should_copy_opencode_dist_spec" == false && "$should_copy_witty_dist_spec" == false && "$should_remove_stale" == false ]]; then
     if [[ "$dry_run" == true ]]; then
-        log "Dry run: rpm/dist already contains the current release bundle; no file changes would be made."
+        log "Dry run: rpm/dist already contains the current split release bundle; no file changes would be made."
     else
         log "Nothing to do. Re-run with --force to refresh rpm/dist anyway."
     fi
@@ -230,30 +273,36 @@ if [[ "$dry_run" == true ]]; then
     log "- Latest upstream release: ${tag} (${latest_version})"
     log "- Current packaging spec version: ${spec_version}"
     log "- Target dist version: ${target_version}"
-    log "- Packaging spec would be updated: ${should_update_packaging_spec}"
-    log "- Source0 would be downloaded to: rpm/dist/$(basename "$target_tarball") (${should_download_source0})"
-    log "- Source1 would be refreshed at: rpm/dist/$(basename "$target_models_file") (${should_refresh_models})"
-    log "- Source2 would be prepared at: rpm/dist/$(basename "$target_base_tarball") (${should_prepare_source2})"
-    log "- Dist spec would be copied from packaging/: ${should_copy_dist_spec}"
+    log "- Target packaging release: ${target_release_number}"
+    log "- Packaging specs would be updated: ${should_update_packaging_specs}"
+    log "- opencode Source0 would be downloaded to: rpm/dist/opencode/${opencode_source_archive} (${should_download_source0})"
+    log "- opencode Source1 would be refreshed at: rpm/dist/opencode/$(basename "$target_models_file") (${should_refresh_models})"
+    log "- witty-opencode-base source bundle would be prepared at: rpm/dist/witty-opencode/$(basename "$target_base_tarball") (${should_prepare_source2})"
+    log "- opencode dist spec would be copied from packaging/: ${should_copy_opencode_dist_spec}"
+    log "- witty-opencode dist spec would be copied from packaging/: ${should_copy_witty_dist_spec}"
 
-    if [[ "$should_remove_stale" == true ]]; then
-        stale_names=()
-        for stale_tarball in "${stale_dist_tarballs[@]}"; do
-            stale_names+=("$(basename "$stale_tarball")")
+    if [[ "${#opencode_stale_tarballs[@]}" -gt 0 || "${#witty_stale_tarballs[@]}" -gt 0 || "${#obsolete_flat_dist_files[@]}" -gt 0 ]]; then
+        log "- Stale dist files that would be removed:"
+        for stale_file in "${opencode_stale_tarballs[@]}" "${witty_stale_tarballs[@]}" "${obsolete_flat_dist_files[@]}"; do
+            [[ -n "$stale_file" ]] || continue
+            log "  * ${stale_file#$REPO_ROOT/}"
         done
-        log "- Stale dist tarballs that would be removed: ${stale_names[*]}"
     else
-        log "- No stale dist tarballs would be removed"
+        log "- No stale dist files would be removed"
     fi
 
     exit 0
 fi
 
-mkdir -p "$RPM_DIST_DIR"
+mkdir -p "$RPM_OPENCODE_DIST_DIR" "$RPM_WITTY_DIST_DIR"
 
-if [[ "$should_update_packaging_spec" == true ]]; then
-    log "Updating rpm/packaging/witty-opencode.spec to ${target_version}"
-    python3 - "$PACKAGING_SPEC_FILE" "$target_version" "$release_number" "$tag" <<'PY'
+update_spec_version() {
+    local spec_path="$1"
+    local new_version="$2"
+    local new_release_number="$3"
+    local tag="$4"
+
+    python3 - "$spec_path" "$new_version" "$new_release_number" "$tag" <<'PY'
 from datetime import datetime
 from pathlib import Path
 import re
@@ -261,13 +310,17 @@ import sys
 
 spec_path = Path(sys.argv[1])
 new_version = sys.argv[2]
-release_number = sys.argv[3]
+new_release_number = sys.argv[3]
 tag = sys.argv[4]
 
 text = spec_path.read_text(encoding='utf-8')
 text, count = re.subn(r'^(Version:\s*)(\S+)$', rf'\g<1>{new_version}', text, count=1, flags=re.MULTILINE)
 if count != 1:
     raise SystemExit('Failed to update Version line in spec file')
+
+text, count = re.subn(r'^(Release:\s*)(\d+)(.*)$', rf'\g<1>{new_release_number}\g<3>', text, count=1, flags=re.MULTILINE)
+if count != 1:
+    raise SystemExit('Failed to update Release line in spec file')
 
 changelog_match = re.search(r'^%changelog\s*$', text, re.MULTILINE)
 if not changelog_match:
@@ -278,19 +331,26 @@ header_match = re.search(r'^\* [A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{4} (.+?) - \
 author = header_match.group(1) if header_match else 'SIG-Intelligence <intelligence@openeuler.org>'
 entry_date = datetime.now().strftime('%a %b %d %Y')
 entry = (
-    f'* {entry_date} {author} - {new_version}-{release_number}\n'
+    f'* {entry_date} {author} - {new_version}-{new_release_number}\n'
     f'- Sync to upstream {tag} release\n'
 )
 
 updated = f"{text[:changelog_match.end()]}\n{entry}\n{tail}"
 spec_path.write_text(updated, encoding='utf-8')
 PY
+}
+
+if [[ "$should_update_packaging_specs" == true ]]; then
+    log "Updating rpm/packaging/opencode.spec to ${target_version}"
+    update_spec_version "$OPENCODE_PACKAGING_SPEC_FILE" "$target_version" "$target_release_number" "$tag"
+    log "Updating rpm/packaging/witty-opencode.spec to ${target_version}"
+    update_spec_version "$WITTY_PACKAGING_SPEC_FILE" "$target_version" "$target_release_number" "$tag"
 fi
 
 if [[ "$should_download_source0" == true ]]; then
-    log "Downloading Source0 to rpm/dist/$(basename "$target_tarball")"
-    curl -fL "$tarball_url" -o "$tarball_tmp"
-    mv "$tarball_tmp" "$target_tarball"
+    log "Downloading opencode Source0 to rpm/dist/opencode/${opencode_source_archive}"
+    curl -fL "$source_tarball_url" -o "$tarball_tmp"
+    mv "$tarball_tmp" "$target_opencode_tarball"
 fi
 
 if [[ "$should_refresh_models" == true ]]; then
@@ -300,7 +360,7 @@ if [[ "$should_refresh_models" == true ]]; then
 fi
 
 if [[ "$should_prepare_source2" == true ]]; then
-    log "Preparing Source2 from rpm/base/ plus the repository root LICENSE"
+    log "Preparing witty-opencode-base source bundle from rpm/base/ plus the repository root LICENSE"
     staging_dir="$(mktemp -d)"
     cp -r "$RPM_BASE_DIR/." "$staging_dir/"
     cp "$REPO_ROOT/LICENSE" "$staging_dir/LICENSE"
@@ -314,20 +374,26 @@ if [[ "$should_prepare_source2" == true ]]; then
     mv "$base_tmp" "$target_base_tarball"
 fi
 
-if [[ "$should_copy_dist_spec" == true ]]; then
-    log "Copying the packaged spec into rpm/dist/"
-    cp -f "$PACKAGING_SPEC_FILE" "$target_dist_spec"
+if [[ "$should_copy_opencode_dist_spec" == true ]]; then
+    log "Copying opencode.spec into rpm/dist/opencode/"
+    cp -f "$OPENCODE_PACKAGING_SPEC_FILE" "$OPENCODE_DIST_SPEC_FILE"
+fi
+
+if [[ "$should_copy_witty_dist_spec" == true ]]; then
+    log "Copying witty-opencode.spec into rpm/dist/witty-opencode/"
+    cp -f "$WITTY_PACKAGING_SPEC_FILE" "$WITTY_DIST_SPEC_FILE"
 fi
 
 if [[ "$should_remove_stale" == true ]]; then
-    log "Removing stale dist tarballs"
-    for stale_tarball in "${stale_dist_tarballs[@]}"; do
-        rm -f "$stale_tarball"
+    log "Removing stale dist files"
+    for stale_file in "${opencode_stale_tarballs[@]}" "${witty_stale_tarballs[@]}" "${obsolete_flat_dist_files[@]}"; do
+        [[ -n "$stale_file" ]] || continue
+        rm -f "$stale_file"
     done
 fi
 
-if [[ "$should_update_packaging_spec" == true ]]; then
-    log "Done. Packaging spec was updated to upstream ${tag}, and rpm/dist was refreshed as a local handoff bundle."
+if [[ "$should_update_packaging_specs" == true ]]; then
+    log "Done. Packaging specs were updated to upstream ${tag}, and rpm/dist/{opencode,witty-opencode}/ was refreshed as a split local handoff bundle."
 else
-    log "Done. rpm/dist now contains the refreshed local handoff bundle for version ${target_version}."
+    log "Done. rpm/dist/{opencode,witty-opencode}/ now contains the refreshed split local handoff bundle for version ${target_version}."
 fi

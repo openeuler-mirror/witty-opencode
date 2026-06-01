@@ -1,6 +1,6 @@
 # witty-opencode-base
 
-本目录是 **`witty-opencode-base`** RPM 包的源码，该包负责将 witty-opencode 以系统托管方式部署。
+本目录是 **`witty-opencode-base`** RPM 包的源码，该包负责将与 `opencode` CLI 配套的托管资源以系统方式部署。
 
 ## 特性
 

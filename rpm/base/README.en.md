@@ -1,6 +1,6 @@
 # witty-opencode-base
 
-This directory contains the source for the **`witty-opencode-base`** RPM package, which deploys witty-opencode as a system-managed installation.
+This directory contains the source for the **`witty-opencode-base`** RPM package, which deploys the managed resources that accompany the `opencode` CLI as a system-managed installation.
 
 ## Goals
 

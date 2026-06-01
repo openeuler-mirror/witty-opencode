@@ -18,12 +18,12 @@
 
 如果你的子包本身也要求 OpenCode CLI 一定存在，再额外依赖：
 
-- `witty-opencode`
+- `opencode`
 
 常见做法：
 
 - 纯数据子包（只放 Agent / Skill / config）：`Requires: witty-opencode-base`
-- 功能强绑定 CLI 的子包：`Requires: witty-opencode-base`，必要时再加 `Requires: witty-opencode`
+- 功能强绑定 CLI 的子包：`Requires: witty-opencode-base`，必要时再加 `Requires: opencode`
 
 ## 子包允许写入的目录
 
